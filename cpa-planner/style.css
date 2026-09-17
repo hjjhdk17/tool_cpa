@@ -112,7 +112,8 @@ body { font-family: var(--ff-base); font-size: var(--fs-base); color: var(--clr-
 .btn--primary:hover { background: #6d28d9; }
 .btn--ghost { background: transparent; color: var(--clr-danger); padding: var(--sp-1) var(--sp-2); }
 .btn--ghost:hover { background: var(--clr-danger-bg); }
-.planner-actions { padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--clr-border-light); }
+.planner-actions { padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--clr-border-light); display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-3); }
+.planner-message { font-size: var(--fs-sm); color: var(--clr-danger); background: var(--clr-danger-bg); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); width: 100%; }
 
 /* Results Grid */
 .results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }

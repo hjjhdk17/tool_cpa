@@ -90,19 +90,21 @@
                 <th>Course Code</th>
                 <th>Course Name</th>
                 <th class="center">Credits</th>
+                <th class="center">Semester</th>
                 <th class="center">Predicted Grade</th>
                 <th class="center">4.0 Scale</th>
                 <th class="center">Action</th>
               </tr>
             </thead>
-            <tbody id="planner-table-body">
-              <!-- Example placeholder row to show structure -->
+            <tbody id="planner-table-body"></tbody>
+            <tbody id="planner-form-body">
               <tr>
-                <td><input type="text" class="planner-input" placeholder="e.g. IT4010E"></td>
-                <td><input type="text" class="planner-input" placeholder="e.g. Machine Learning"></td>
-                <td class="center"><input type="number" class="planner-input planner-input--credits" placeholder="3" min="1" max="10"></td>
+                <td><input type="text" id="planner-code-input" class="planner-input" placeholder="e.g. IT4010E"></td>
+                <td><input type="text" id="planner-name-input" class="planner-input" placeholder="e.g. Machine Learning"></td>
+                <td class="center"><input type="number" id="planner-credits-input" class="planner-input planner-input--credits" placeholder="3" min="1" step="1"></td>
+                <td class="center"><span class="scale-placeholder">—</span></td>
                 <td class="center">
-                  <select class="grade-select" id="grade-select-1">
+                  <select class="grade-select" id="planner-grade-select">
                     <option value="" selected disabled>Grade</option>
                     <option value="A+">A+</option>
                     <option value="A">A</option>
@@ -116,9 +118,7 @@
                   </select>
                 </td>
                 <td class="center"><span class="scale-placeholder">—</span></td>
-                <td class="center">
-                  <button class="btn btn--ghost" title="Remove course">✕</button>
-                </td>
+                <td class="center"></td>
               </tr>
             </tbody>
           </table>
@@ -126,6 +126,7 @@
 
         <!-- Add Course button -->
         <div class="planner-actions">
+          <p id="planner-message" class="planner-message" hidden></p>
           <button class="btn btn--primary" id="btn-add-course">+ Add Course</button>
         </div>
       </div>
