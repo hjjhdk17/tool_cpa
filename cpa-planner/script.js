@@ -45,6 +45,9 @@ const academicHistory = [
   { id: "hist-20252-IT3190E", semester: "20252", code: "IT3190E", name: "Học máy",                                        credits: 3, grade: "B"  },
 ];
 
+// Courses completed from the planner are persisted separately from the immutable seed.
+const persistedAcademicHistory = [];
+
 // Planned / future courses — kept separate; must not affect Current CPA
 const semesterPlan = {
   semester: "20261",
@@ -52,6 +55,7 @@ const semesterPlan = {
 };
 
 let nextPlannedCourseId = 1;
+let nextCompletedCourseId = 1;
 let gradeOverrides = {};
 let hasUnsavedChanges = false;
 let lastSavedAt = null;
@@ -105,7 +109,7 @@ function calculateQualityPoints(courses) {
 }
 
 function getRawAcademicHistory() {
-  return academicHistory.map((course) => {
+  return academicHistory.concat(persistedAcademicHistory).map((course) => {
     const overrideGrade = gradeOverrides[course.id];
     return {
       ...course,
@@ -166,9 +170,10 @@ function calculatePlannedCredits(courses) {
 }
 
 function calculateSemesterGPA(courses) {
-  const totalCredits = sumCredits(courses);
+  const gradedCourses = courses.filter((course) => isValidGrade(course.grade));
+  const totalCredits = sumCredits(gradedCourses);
   if (totalCredits === 0) return 0;
-  return calculateQualityPoints(courses) / totalCredits;
+  return calculateQualityPoints(gradedCourses) / totalCredits;
 }
 
 function calculateProjectedCPA(completedCourses, plannedCourses) {
@@ -233,6 +238,100 @@ function formatSemesterLabel(code) {
   const year = code.slice(0, 4);
   const term = code.slice(4);
   return `${year} — Semester ${term}`;
+}
+
+function getSemesterGPAData() {
+  const semesterData = [];
+  const grouped = groupBySemester(getRawAcademicHistory());
+
+  grouped.forEach((courses, semester) => {
+    const gradedCourses = courses.filter((course) => isValidGrade(course.grade));
+    if (gradedCourses.length === 0) return;
+
+    semesterData.push({
+      semester,
+      label: formatSemesterLabel(semester),
+      gpa: calculateSemesterGPA(gradedCourses),
+    });
+  });
+
+  return semesterData.sort((a, b) => a.semester.localeCompare(b.semester, undefined, { numeric: true }));
+}
+
+let gpaTrendChart = null;
+
+function updateGPAChart() {
+  const chartCanvas = document.getElementById("gpa-trend-chart");
+  const emptyState = document.getElementById("gpa-chart-empty");
+  const chartContainer = chartCanvas ? chartCanvas.parentElement : null;
+  if (!chartCanvas || !emptyState || !chartContainer) return;
+
+  const semesterData = getSemesterGPAData();
+  const hasData = semesterData.length > 0;
+  emptyState.hidden = hasData;
+  chartContainer.hidden = !hasData;
+
+  if (gpaTrendChart) {
+    gpaTrendChart.destroy();
+    gpaTrendChart = null;
+  }
+  if (!hasData) return;
+  if (typeof Chart === "undefined") {
+    emptyState.textContent = "The GPA chart could not be loaded.";
+    emptyState.hidden = false;
+    chartContainer.hidden = true;
+    return;
+  }
+  emptyState.textContent = "No semester GPA data available yet.";
+
+  const styles = getComputedStyle(document.documentElement);
+  const textColor = styles.getPropertyValue("--clr-text-secondary").trim();
+  const borderColor = styles.getPropertyValue("--clr-border").trim();
+  const primaryColor = styles.getPropertyValue("--clr-primary").trim();
+
+  gpaTrendChart = new Chart(chartCanvas, {
+    type: "line",
+    data: {
+      labels: semesterData.map((item) => item.label),
+      datasets: [{
+        label: "GPA",
+        data: semesterData.map((item) => item.gpa),
+        borderColor: primaryColor,
+        backgroundColor: primaryColor,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        tension: 0.25,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          title: { display: true, text: "Semester", color: textColor },
+          ticks: { color: textColor },
+          grid: { color: borderColor },
+        },
+        y: {
+          min: 0,
+          max: 4,
+          ticks: { stepSize: 0.5, color: textColor },
+          title: { display: true, text: "GPA", color: textColor },
+          grid: { color: borderColor },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: textColor } },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0]?.label || "",
+            label: (context) => `GPA: ${Number(context.parsed.y).toFixed(2)}`,
+          },
+        },
+      },
+    },
+  });
 }
 
 // ------------------------------------------------------------------
@@ -321,6 +420,21 @@ function isValidPlannedCourse(course) {
     course.credits > 0 &&
     typeof course.semester === "string" &&
     course.semester.trim() !== "" &&
+    (course.grade === "" || isValidGrade(course.grade))
+  );
+}
+
+function isValidCompletedCourse(course) {
+  return (
+    course &&
+    typeof course === "object" &&
+    typeof course.id === "string" &&
+    typeof course.code === "string" &&
+    typeof course.name === "string" &&
+    Number.isInteger(course.credits) &&
+    course.credits > 0 &&
+    typeof course.semester === "string" &&
+    course.semester.trim() !== "" &&
     isValidGrade(course.grade)
   );
 }
@@ -330,6 +444,10 @@ function isValidPersistedState(data) {
   if (data.version !== 1) return false;
   if (!Array.isArray(data.plannedCourses)) return false;
   if (!data.plannedCourses.every(isValidPlannedCourse)) return false;
+  if (data.completedCourses !== undefined &&
+      (!Array.isArray(data.completedCourses) || !data.completedCourses.every(isValidCompletedCourse))) {
+    return false;
+  }
   if (!data.gradeOverrides || typeof data.gradeOverrides !== "object" || Array.isArray(data.gradeOverrides)) {
     return false;
   }
@@ -348,6 +466,15 @@ function restoreNextPlannedCourseId(courses) {
     if (match) max = Math.max(max, Number(match[1]));
   }
   nextPlannedCourseId = max + 1;
+}
+
+function restoreNextCompletedCourseId(courses) {
+  let max = 0;
+  for (const course of courses) {
+    const match = String(course.id).match(/^hist-planned-(\d+)$/);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  nextCompletedCourseId = max + 1;
 }
 
 function loadPersistedState() {
@@ -370,8 +497,10 @@ function loadPersistedState() {
 
     gradeOverrides = { ...data.gradeOverrides };
     semesterPlan.courses = data.plannedCourses.map((course) => ({ ...course }));
+    persistedAcademicHistory.push(...(data.completedCourses || []).map((course) => ({ ...course })));
     semesterPlan.semester = data.plannerSemester || semesterPlan.semester;
     restoreNextPlannedCourseId(semesterPlan.courses);
+    restoreNextCompletedCourseId(persistedAcademicHistory);
     lastSavedAt = data.savedAt || null;
     hasUnsavedChanges = false;
   } catch (error) {
@@ -384,6 +513,7 @@ function savePersistedState() {
   const payload = {
     version: 1,
     plannedCourses: semesterPlan.courses.map((course) => ({ ...course })),
+    completedCourses: persistedAcademicHistory.map((course) => ({ ...course })),
     gradeOverrides: { ...gradeOverrides },
     plannerSemester: getSelectedPlannerSemester(),
     savedAt,
@@ -405,6 +535,35 @@ function savePersistedState() {
   return true;
 }
 
+function moveCompletedPlannerCoursesToHistory() {
+  const completed = semesterPlan.courses.filter((course) => isValidGrade(course.grade));
+  if (completed.length === 0) return 0;
+
+  const completedHistory = getRawAcademicHistory();
+  for (const plannedCourse of completed) {
+    const matchingHistoryCourse = completedHistory.find((course) => (
+      normalizeCourseCode(course.code) === normalizeCourseCode(plannedCourse.code) &&
+      course.semester === plannedCourse.semester
+    ));
+
+    if (matchingHistoryCourse) {
+      gradeOverrides[matchingHistoryCourse.id] = plannedCourse.grade;
+    } else {
+      persistedAcademicHistory.push({
+        id: `hist-planned-${nextCompletedCourseId++}`,
+        code: normalizeCourseCode(plannedCourse.code),
+        name: plannedCourse.name,
+        credits: plannedCourse.credits,
+        semester: plannedCourse.semester,
+        grade: plannedCourse.grade,
+      });
+    }
+  }
+
+  semesterPlan.courses = semesterPlan.courses.filter((course) => !isValidGrade(course.grade));
+  return completed.length;
+}
+
 function handleSave() {
   const invalidPlanned = semesterPlan.courses.filter((course) => !isValidPlannedCourse(course));
   if (invalidPlanned.length > 0) {
@@ -412,7 +571,26 @@ function handleSave() {
     return;
   }
 
-  savePersistedState();
+  const plannedCoursesBeforeSave = semesterPlan.courses.map((course) => ({ ...course }));
+  const completedHistoryBeforeSave = persistedAcademicHistory.map((course) => ({ ...course }));
+  const gradeOverridesBeforeSave = { ...gradeOverrides };
+  const completedCount = moveCompletedPlannerCoursesToHistory();
+  const saved = savePersistedState();
+  if (!saved) {
+    semesterPlan.courses = plannedCoursesBeforeSave;
+    persistedAcademicHistory.splice(0, persistedAcademicHistory.length, ...completedHistoryBeforeSave);
+    gradeOverrides = gradeOverridesBeforeSave;
+    renderAcademicSummary();
+    renderAcademicHistory();
+    renderSemesterPlanner();
+    return;
+  }
+  if (completedCount > 0) {
+    showPlannerMessage(
+      `${completedCount} completed course${completedCount === 1 ? "" : "s"} moved to Academic History.`,
+      "success"
+    );
+  }
   renderAcademicSummary();
   renderAcademicHistory();
   renderSemesterPlanner();
@@ -465,8 +643,8 @@ function validatePlannedCourse(course) {
     errors.push("Semester is required.");
   }
 
-  if (!course.grade || !isValidGrade(course.grade)) {
-    errors.push("Please select a valid planned grade.");
+  if (course.grade !== "" && !isValidGrade(course.grade)) {
+    errors.push("Please select a valid grade or leave it as No final grade.");
   }
 
   if (course.code && course.semester && isDuplicatePlannedCourse(course.code, course.semester)) {
@@ -748,6 +926,8 @@ function renderAcademicHistory() {
 
     container.appendChild(semesterBlock);
   });
+
+  updateGPAChart();
 }
 
 function renderSemesterPlanner() {
@@ -782,7 +962,9 @@ function renderSemesterPlanner() {
     headerCell.colSpan = 8;
     const semesterCredits = calculatePlannedCredits(courses);
     const semesterGPA = calculateSemesterGPA(courses);
-    headerCell.textContent = `${formatSemesterLabel(semesterCode)}  ·  ${semesterCredits} credits  ·  GPA ${formatGPA(semesterGPA)}`;
+    const gradedCourses = courses.filter((course) => isValidGrade(course.grade));
+    const gpaText = gradedCourses.length > 0 ? `GPA ${formatGPA(semesterGPA)}` : "No final grades";
+    headerCell.textContent = `${formatSemesterLabel(semesterCode)}  ·  ${semesterCredits} credits  ·  ${gpaText}`;
     headerRow.appendChild(headerCell);
     tbody.appendChild(headerRow);
 
@@ -807,8 +989,13 @@ function renderSemesterPlanner() {
       const gradeCell = document.createElement("td");
       gradeCell.className = "center";
       const gradeBadge = document.createElement("span");
-      gradeBadge.className = `grade-badge grade-${course.grade.replace("+", "-plus")}`;
-      gradeBadge.textContent = course.grade;
+      if (isValidGrade(course.grade)) {
+        gradeBadge.className = `grade-badge grade-${course.grade.replace("+", "-plus")}`;
+        gradeBadge.textContent = course.grade;
+      } else {
+        gradeBadge.className = "planned-status planned-status--new";
+        gradeBadge.textContent = "Planned";
+      }
       gradeCell.appendChild(gradeBadge);
 
       const statusCell = document.createElement("td");
