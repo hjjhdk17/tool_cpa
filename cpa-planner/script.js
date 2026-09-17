@@ -1,12 +1,13 @@
 /* ============================================================
-   CPA Planner — Phase 4: GPA & CPA Calculation Engine
+   CPA Planner — Phase 5: Grade Improvement + Persistent Data
    ============================================================
-   1. Academic data
+   1. Academic data (immutable seed)
    2. Grade point mapping
-   3. Academic calculations
+   3. Academic calculations (raw / effective / projected)
    4. History validation
-   5. Semester planner (planned courses)
-   6. UI rendering / initialization
+   5. Persistence (localStorage)
+   6. Semester planner (planned courses)
+   7. UI rendering / initialization
    ============================================================ */
 
 // ------------------------------------------------------------------
@@ -15,33 +16,33 @@
 
 const academicHistory = [
   // ---- Semester 20241 ----
-  { semester: "20241", code: "MI1141E", name: "Đại số",                credits: 4, grade: "B"  },
-  { semester: "20241", code: "MI1111E", name: "Giải tích I",           credits: 4, grade: "B+" },
-  { semester: "20241", code: "IT1110E", name: "Nhập môn lập trình",    credits: 4, grade: "B+" },
-  { semester: "20241", code: "EM1170",  name: "Pháp luật đại cương",   credits: 2, grade: "B"  },
+  { id: "hist-20241-MI1141E", semester: "20241", code: "MI1141E", name: "Đại số",                credits: 4, grade: "B"  },
+  { id: "hist-20241-MI1111E", semester: "20241", code: "MI1111E", name: "Giải tích I",           credits: 4, grade: "B+" },
+  { id: "hist-20241-IT1110E", semester: "20241", code: "IT1110E", name: "Nhập môn lập trình",    credits: 4, grade: "B+" },
+  { id: "hist-20241-EM1170",  semester: "20241", code: "EM1170",  name: "Pháp luật đại cương",   credits: 2, grade: "B"  },
 
   // ---- Semester 20242 ----
-  { semester: "20242", code: "SSH1111", name: "Triết học Mác - Lênin",                credits: 3, grade: "B+" },
-  { semester: "20242", code: "MI2020E", name: "Probability and Statistics",           credits: 2, grade: "C"  },
-  { semester: "20242", code: "MI1121E", name: "Giải tích II",                         credits: 3, grade: "B"  },
-  { semester: "20242", code: "IT3052E", name: "Tối ưu hóa",                           credits: 3, grade: "C"  },
-  { semester: "20242", code: "IT3020E", name: "Discrete Math",                        credits: 3, grade: "B"  },
-  { semester: "20242", code: "IT3010E", name: "Cấu trúc dữ liệu và giải thuật",      credits: 3, grade: "B"  },
+  { id: "hist-20242-SSH1111", semester: "20242", code: "SSH1111", name: "Triết học Mác - Lênin",                credits: 3, grade: "B+" },
+  { id: "hist-20242-MI2020E", semester: "20242", code: "MI2020E", name: "Probability and Statistics",           credits: 2, grade: "C"  },
+  { id: "hist-20242-MI1121E", semester: "20242", code: "MI1121E", name: "Giải tích II",                         credits: 3, grade: "B"  },
+  { id: "hist-20242-IT3052E", semester: "20242", code: "IT3052E", name: "Tối ưu hóa",                           credits: 3, grade: "C"  },
+  { id: "hist-20242-IT3020E", semester: "20242", code: "IT3020E", name: "Discrete Math",                        credits: 3, grade: "B"  },
+  { id: "hist-20242-IT3010E", semester: "20242", code: "IT3010E", name: "Cấu trúc dữ liệu và giải thuật",      credits: 3, grade: "B"  },
 
   // ---- Semester 20251 ----
-  { semester: "20251", code: "SSH1121", name: "Kinh tế chính trị Mác - Lênin",        credits: 2, grade: "B+" },
-  { semester: "20251", code: "PH1120E", name: "Vật lý đại cương II",                  credits: 3, grade: "B"  },
-  { semester: "20251", code: "MI1131E", name: "Giải tích III",                        credits: 3, grade: "B"  },
-  { semester: "20251", code: "IT3100E", name: "Object-oriented Programming",          credits: 3, grade: "C+" },
-  { semester: "20251", code: "IT3030E", name: "Kiến trúc máy tính",                   credits: 3, grade: "C"  },
-  { semester: "20251", code: "IT2030",  name: "Technical Writing and Presentation",   credits: 3, grade: "A"  },
+  { id: "hist-20251-SSH1121", semester: "20251", code: "SSH1121", name: "Kinh tế chính trị Mác - Lênin",        credits: 2, grade: "B+" },
+  { id: "hist-20251-PH1120E", semester: "20251", code: "PH1120E", name: "Vật lý đại cương II",                  credits: 3, grade: "B"  },
+  { id: "hist-20251-MI1131E", semester: "20251", code: "MI1131E", name: "Giải tích III",                        credits: 3, grade: "B"  },
+  { id: "hist-20251-IT3100E", semester: "20251", code: "IT3100E", name: "Object-oriented Programming",          credits: 3, grade: "C+" },
+  { id: "hist-20251-IT3030E", semester: "20251", code: "IT3030E", name: "Kiến trúc máy tính",                   credits: 3, grade: "C"  },
+  { id: "hist-20251-IT2030",  semester: "20251", code: "IT2030",  name: "Technical Writing and Presentation",   credits: 3, grade: "A"  },
 
   // ---- Semester 20252 ----
-  { semester: "20252", code: "IT3090E", name: "Cơ sở dữ liệu",                                credits: 3, grade: "B+" },
-  { semester: "20252", code: "IT2022E", name: "Thống kê ứng dụng và phân tích thực nghiệm",    credits: 3, grade: "C+" },
-  { semester: "20252", code: "EM1010",  name: "Quản trị học đại cương",                         credits: 2, grade: "A"  },
-  { semester: "20252", code: "SSH1131", name: "Chủ nghĩa xã hội khoa học",                     credits: 2, grade: "B+" },
-  { semester: "20252", code: "IT3190E", name: "Học máy",                                        credits: 3, grade: "B"  },
+  { id: "hist-20252-IT3090E", semester: "20252", code: "IT3090E", name: "Cơ sở dữ liệu",                                credits: 3, grade: "B+" },
+  { id: "hist-20252-IT2022E", semester: "20252", code: "IT2022E", name: "Thống kê ứng dụng và phân tích thực nghiệm",    credits: 3, grade: "C+" },
+  { id: "hist-20252-EM1010",  semester: "20252", code: "EM1010",  name: "Quản trị học đại cương",                         credits: 2, grade: "A"  },
+  { id: "hist-20252-SSH1131", semester: "20252", code: "SSH1131", name: "Chủ nghĩa xã hội khoa học",                     credits: 2, grade: "B+" },
+  { id: "hist-20252-IT3190E", semester: "20252", code: "IT3190E", name: "Học máy",                                        credits: 3, grade: "B"  },
 ];
 
 // Planned / future courses — kept separate; must not affect Current CPA
@@ -51,6 +52,12 @@ const semesterPlan = {
 };
 
 let nextPlannedCourseId = 1;
+let gradeOverrides = {};
+let hasUnsavedChanges = false;
+let lastSavedAt = null;
+
+const STORAGE_KEY = "cpaPlannerState";
+const GRADE_OPTIONS = ["A+", "A", "B+", "B", "C+", "C", "D+", "D", "F"];
 
 // ------------------------------------------------------------------
 // 2. GRADE POINT MAPPING — 4.0 scale (single source)
@@ -72,10 +79,15 @@ function getGradePoint(grade) {
   return GRADE_POINTS[grade];
 }
 
+function normalizeCourseCode(code) {
+  return String(code || "").trim().toUpperCase();
+}
+
 // ------------------------------------------------------------------
 // 3. ACADEMIC CALCULATIONS
-//    Current CPA / completed credits: academicHistory only
-//    Planned GPA / projected CPA: semesterPlan, kept separate
+//    Raw history: all attempts (display / editing)
+//    Effective history: highest grade per course code (Current CPA)
+//    Projected effective: merge effective completed + planned, then highest
 // ------------------------------------------------------------------
 
 function sumCredits(courses) {
@@ -88,14 +100,61 @@ function calculateQualityPoints(courses) {
   }, 0);
 }
 
+function getRawAcademicHistory() {
+  return academicHistory.map((course) => {
+    const overrideGrade = gradeOverrides[course.id];
+    return {
+      ...course,
+      grade: overrideGrade && overrideGrade in GRADE_POINTS ? overrideGrade : course.grade,
+    };
+  });
+}
+
+function getEffectiveAcademicHistory(courses) {
+  const bestByCode = new Map();
+
+  for (const course of courses) {
+    const code = normalizeCourseCode(course.code);
+    if (!code) continue;
+
+    const points = getGradePoint(course.grade);
+    if (!Number.isFinite(points)) continue;
+
+    const existing = bestByCode.get(code);
+    if (!existing) {
+      bestByCode.set(code, { ...course, code });
+      continue;
+    }
+
+    if (points > getGradePoint(existing.grade)) {
+      bestByCode.set(code, { ...course, code });
+    }
+  }
+
+  return Array.from(bestByCode.values());
+}
+
+function getProjectedEffectiveHistory(completedCourses, plannedCourses) {
+  const effectiveCompleted = getEffectiveAcademicHistory(completedCourses);
+  if (!plannedCourses || plannedCourses.length === 0) {
+    return effectiveCompleted;
+  }
+  return getEffectiveAcademicHistory(effectiveCompleted.concat(plannedCourses));
+}
+
 function calculateCompletedCredits(courses) {
   return sumCredits(courses);
 }
 
+function calculateEffectiveCompletedCredits(courses) {
+  return sumCredits(getEffectiveAcademicHistory(courses));
+}
+
 function calculateCurrentCPA(courses) {
-  const totalCredits = calculateCompletedCredits(courses);
+  const effective = getEffectiveAcademicHistory(courses);
+  const totalCredits = calculateCompletedCredits(effective);
   if (totalCredits === 0) return 0;
-  return calculateQualityPoints(courses) / totalCredits;
+  return calculateQualityPoints(effective) / totalCredits;
 }
 
 function calculatePlannedCredits(courses) {
@@ -109,18 +168,23 @@ function calculateSemesterGPA(courses) {
 }
 
 function calculateProjectedCPA(completedCourses, plannedCourses) {
-  const plannedCredits = calculatePlannedCredits(plannedCourses);
-  if (plannedCredits === 0) {
+  if (!plannedCourses || plannedCourses.length === 0) {
     return calculateCurrentCPA(completedCourses);
   }
 
-  const completedCredits = calculateCompletedCredits(completedCourses);
-  const totalCredits = completedCredits + plannedCredits;
+  const projected = getProjectedEffectiveHistory(completedCourses, plannedCourses);
+  const totalCredits = calculateCompletedCredits(projected);
   if (totalCredits === 0) return 0;
+  return calculateQualityPoints(projected) / totalCredits;
+}
 
-  const completedQualityPoints = calculateQualityPoints(completedCourses);
-  const plannedQualityPoints = calculateQualityPoints(plannedCourses);
-  return (completedQualityPoints + plannedQualityPoints) / totalCredits;
+function isCompletedCourseCode(code, completedCourses) {
+  const normalized = normalizeCourseCode(code);
+  return completedCourses.some((course) => normalizeCourseCode(course.code) === normalized);
+}
+
+function getPlannedCourseStatus(course, completedCourses) {
+  return isCompletedCourseCode(course.code, completedCourses) ? "Improvement" : "New";
 }
 
 function getPlannedSemesterStats(plannedCourses) {
@@ -207,11 +271,155 @@ function validateAcademicHistory() {
 }
 
 // ------------------------------------------------------------------
-// 5. SEMESTER PLANNER — planned courses only (does not affect CPA)
+// 5. PERSISTENCE — localStorage (source state only, never derived CPA)
+// ------------------------------------------------------------------
+
+function formatSavedAt(isoString) {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function updateSaveStatus() {
+  const el = document.getElementById("save-status");
+  if (!el) return;
+
+  if (hasUnsavedChanges) {
+    el.textContent = "Unsaved changes";
+    el.className = "save-status save-status--unsaved";
+    return;
+  }
+
+  if (lastSavedAt) {
+    const time = formatSavedAt(lastSavedAt);
+    el.textContent = time ? `Saved at ${time}` : "Saved";
+    el.className = "save-status save-status--saved";
+    return;
+  }
+
+  el.textContent = "Saved";
+  el.className = "save-status save-status--saved";
+}
+
+function markUnsaved() {
+  hasUnsavedChanges = true;
+  updateSaveStatus();
+}
+
+function isValidPlannedCourse(course) {
+  return (
+    course &&
+    typeof course === "object" &&
+    typeof course.id === "string" &&
+    typeof course.code === "string" &&
+    typeof course.name === "string" &&
+    Number.isInteger(course.credits) &&
+    course.credits > 0 &&
+    typeof course.semester === "string" &&
+    course.semester.trim() !== "" &&
+    course.grade in GRADE_POINTS
+  );
+}
+
+function isValidPersistedState(data) {
+  if (!data || typeof data !== "object") return false;
+  if (data.version !== 1) return false;
+  if (!Array.isArray(data.plannedCourses)) return false;
+  if (!data.plannedCourses.every(isValidPlannedCourse)) return false;
+  if (!data.gradeOverrides || typeof data.gradeOverrides !== "object" || Array.isArray(data.gradeOverrides)) {
+    return false;
+  }
+
+  for (const grade of Object.values(data.gradeOverrides)) {
+    if (!(grade in GRADE_POINTS)) return false;
+  }
+
+  return true;
+}
+
+function restoreNextPlannedCourseId(courses) {
+  let max = 0;
+  for (const course of courses) {
+    const match = String(course.id).match(/^planned-(\d+)$/);
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  nextPlannedCourseId = max + 1;
+}
+
+function loadPersistedState() {
+  let raw;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (error) {
+    console.warn("[CPA Planner] Unable to read localStorage:", error);
+    return;
+  }
+
+  if (!raw) return;
+
+  try {
+    const data = JSON.parse(raw);
+    if (!isValidPersistedState(data)) {
+      console.warn("[CPA Planner] Ignoring malformed saved state.");
+      return;
+    }
+
+    gradeOverrides = { ...data.gradeOverrides };
+    semesterPlan.courses = data.plannedCourses.map((course) => ({ ...course }));
+    semesterPlan.semester = data.plannerSemester || semesterPlan.semester;
+    restoreNextPlannedCourseId(semesterPlan.courses);
+    lastSavedAt = data.savedAt || null;
+    hasUnsavedChanges = false;
+  } catch (error) {
+    console.warn("[CPA Planner] Ignoring corrupted saved state:", error);
+  }
+}
+
+function savePersistedState() {
+  const savedAt = new Date().toISOString();
+  const payload = {
+    version: 1,
+    plannedCourses: semesterPlan.courses.map((course) => ({ ...course })),
+    gradeOverrides: { ...gradeOverrides },
+    plannerSemester: getSelectedPlannerSemester(),
+    savedAt,
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    showPlannerMessage("Could not save data. Please try again.");
+    console.warn("[CPA Planner] Unable to write localStorage:", error);
+    return false;
+  }
+
+  lastSavedAt = savedAt;
+  hasUnsavedChanges = false;
+  semesterPlan.semester = payload.plannerSemester;
+  showPlannerMessage("Saved successfully.", "success");
+  updateSaveStatus();
+  return true;
+}
+
+function handleSave() {
+  const invalidPlanned = semesterPlan.courses.filter((course) => !isValidPlannedCourse(course));
+  if (invalidPlanned.length > 0) {
+    showPlannerMessage("Cannot save: planned course data is invalid.");
+    return;
+  }
+
+  savePersistedState();
+  renderAcademicSummary();
+  renderAcademicHistory();
+  renderSemesterPlanner();
+}
+
+// ------------------------------------------------------------------
+// 6. SEMESTER PLANNER — planned courses only (does not affect Current CPA)
 // ------------------------------------------------------------------
 
 function normalizeCourseCode(code) {
-  return code.trim().toUpperCase();
+  return String(code || "").trim().toUpperCase();
 }
 
 function parseCredits(value) {
