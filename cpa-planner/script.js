@@ -47,6 +47,7 @@ const academicHistory = [
 
 // Courses completed from the planner are persisted separately from the immutable seed.
 const persistedAcademicHistory = [];
+const deletedAcademicHistoryIds = new Set();
 
 // Planned / future courses — kept separate; must not affect Current CPA
 const semesterPlan = {
@@ -61,6 +62,7 @@ let hasUnsavedChanges = false;
 let lastSavedAt = null;
 
 const STORAGE_KEY = "cpaPlannerState";
+const THEME_STORAGE_KEY = "cpaPlannerTheme";
 const GRADE_OPTIONS = ["A+", "A", "B+", "B", "C+", "C", "D+", "D", "F"];
 
 // ------------------------------------------------------------------
@@ -109,13 +111,15 @@ function calculateQualityPoints(courses) {
 }
 
 function getRawAcademicHistory() {
-  return academicHistory.concat(persistedAcademicHistory).map((course) => {
-    const overrideGrade = gradeOverrides[course.id];
-    return {
-      ...course,
-      grade: isValidGrade(overrideGrade) ? overrideGrade : course.grade,
-    };
-  });
+  return academicHistory.concat(persistedAcademicHistory)
+    .filter((course) => !deletedAcademicHistoryIds.has(course.id))
+    .map((course) => {
+      const overrideGrade = gradeOverrides[course.id];
+      return {
+        ...course,
+        grade: isValidGrade(overrideGrade) ? overrideGrade : course.grade,
+      };
+    });
 }
 
 function getEffectiveAcademicHistory(courses) {
@@ -242,34 +246,87 @@ function formatSemesterLabel(code) {
 
 function getSemesterGPAData() {
   const semesterData = [];
-  const grouped = groupBySemester(getRawAcademicHistory());
+  const history = getRawAcademicHistory();
+  const grouped = groupBySemester(history);
+  const orderedSemesters = Array.from(grouped.keys())
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
-  grouped.forEach((courses, semester) => {
+  orderedSemesters.forEach((semester) => {
+    const courses = grouped.get(semester);
     const gradedCourses = courses.filter((course) => isValidGrade(course.grade));
     if (gradedCourses.length === 0) return;
 
+    const coursesThroughSemester = history.filter((course) => (
+      course.semester.localeCompare(semester, undefined, { numeric: true }) <= 0
+    ));
     semesterData.push({
       semester,
       label: formatSemesterLabel(semester),
       gpa: calculateSemesterGPA(gradedCourses),
+      cpa: calculateCurrentCPA(coursesThroughSemester),
     });
   });
 
-  return semesterData.sort((a, b) => a.semester.localeCompare(b.semester, undefined, { numeric: true }));
+  return semesterData;
 }
 
 let gpaTrendChart = null;
+
+function getPreferredTheme() {
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function updateThemeToggle(theme) {
+  const toggle = document.getElementById("theme-toggle");
+  if (!toggle) return;
+  const isDark = theme === "dark";
+  toggle.setAttribute("aria-label", `Switch to ${isDark ? "light" : "dark"} mode`);
+  toggle.querySelector(".theme-toggle__icon").textContent = isDark ? "☀️" : "🌙";
+  toggle.querySelector(".theme-toggle__label").textContent = isDark ? "Light Mode" : "Dark Mode";
+}
+
+function applyTheme(theme, persist = true) {
+  document.documentElement.dataset.theme = theme;
+  updateThemeToggle(theme);
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (error) {
+      console.warn("[CPA Planner] Unable to save theme preference:", error);
+    }
+  }
+  if (gpaTrendChart) updateGPAChart();
+}
+
+function initializeTheme() {
+  let theme = "light";
+  try {
+    theme = getPreferredTheme();
+  } catch (error) {
+    theme = window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  applyTheme(theme, false);
+  const toggle = document.getElementById("theme-toggle");
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    });
+  }
+}
 
 function updateGPAChart() {
   const chartCanvas = document.getElementById("gpa-trend-chart");
   const emptyState = document.getElementById("gpa-chart-empty");
   const chartContainer = chartCanvas ? chartCanvas.parentElement : null;
-  if (!chartCanvas || !emptyState || !chartContainer) return;
+  const chartScroll = chartContainer ? chartContainer.parentElement : null;
+  if (!chartCanvas || !emptyState || !chartContainer || !chartScroll) return;
 
   const semesterData = getSemesterGPAData();
   const hasData = semesterData.length > 0;
   emptyState.hidden = hasData;
-  chartContainer.hidden = !hasData;
+  chartScroll.hidden = !hasData;
 
   if (gpaTrendChart) {
     gpaTrendChart.destroy();
@@ -279,7 +336,7 @@ function updateGPAChart() {
   if (typeof Chart === "undefined") {
     emptyState.textContent = "The GPA chart could not be loaded.";
     emptyState.hidden = false;
-    chartContainer.hidden = true;
+    chartScroll.hidden = true;
     return;
   }
   emptyState.textContent = "No semester GPA data available yet.";
@@ -288,6 +345,11 @@ function updateGPAChart() {
   const textColor = styles.getPropertyValue("--clr-text-secondary").trim();
   const borderColor = styles.getPropertyValue("--clr-border").trim();
   const primaryColor = styles.getPropertyValue("--clr-primary").trim();
+  const accentColor = styles.getPropertyValue("--clr-accent").trim();
+  const tooltipBackground = styles.getPropertyValue("--clr-surface").trim();
+  const tooltipText = styles.getPropertyValue("--clr-text").trim();
+
+  chartContainer.style.width = `${Math.max(chartScroll.clientWidth, semesterData.length * 140)}px`;
 
   gpaTrendChart = new Chart(chartCanvas, {
     type: "line",
@@ -300,6 +362,16 @@ function updateGPAChart() {
         backgroundColor: primaryColor,
         pointRadius: 5,
         pointHoverRadius: 7,
+        tension: 0.25,
+        fill: false,
+      }, {
+        label: "CPA",
+        data: semesterData.map((item) => item.cpa),
+        borderColor: accentColor,
+        backgroundColor: accentColor,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        borderDash: [6, 4],
         tension: 0.25,
         fill: false,
       }],
@@ -324,13 +396,22 @@ function updateGPAChart() {
       plugins: {
         legend: { labels: { color: textColor } },
         tooltip: {
+          backgroundColor: tooltipBackground,
+          titleColor: tooltipText,
+          bodyColor: tooltipText,
+          borderColor,
+          borderWidth: 1,
           callbacks: {
             title: (items) => items[0]?.label || "",
-            label: (context) => `GPA: ${Number(context.parsed.y).toFixed(2)}`,
+            label: (context) => `${context.dataset.label}: ${Number(context.parsed.y).toFixed(2)}`,
           },
         },
       },
     },
+  });
+
+  requestAnimationFrame(() => {
+    chartScroll.scrollLeft = chartScroll.scrollWidth;
   });
 }
 
@@ -448,6 +529,10 @@ function isValidPersistedState(data) {
       (!Array.isArray(data.completedCourses) || !data.completedCourses.every(isValidCompletedCourse))) {
     return false;
   }
+  if (data.deletedCourseIds !== undefined &&
+      (!Array.isArray(data.deletedCourseIds) || !data.deletedCourseIds.every((id) => typeof id === "string"))) {
+    return false;
+  }
   if (!data.gradeOverrides || typeof data.gradeOverrides !== "object" || Array.isArray(data.gradeOverrides)) {
     return false;
   }
@@ -498,6 +583,10 @@ function loadPersistedState() {
     gradeOverrides = { ...data.gradeOverrides };
     semesterPlan.courses = data.plannedCourses.map((course) => ({ ...course }));
     persistedAcademicHistory.push(...(data.completedCourses || []).map((course) => ({ ...course })));
+    deletedAcademicHistoryIds.clear();
+    for (const id of data.deletedCourseIds || []) {
+      deletedAcademicHistoryIds.add(id);
+    }
     semesterPlan.semester = data.plannerSemester || semesterPlan.semester;
     restoreNextPlannedCourseId(semesterPlan.courses);
     restoreNextCompletedCourseId(persistedAcademicHistory);
@@ -514,6 +603,7 @@ function savePersistedState() {
     version: 1,
     plannedCourses: semesterPlan.courses.map((course) => ({ ...course })),
     completedCourses: persistedAcademicHistory.map((course) => ({ ...course })),
+    deletedCourseIds: Array.from(deletedAcademicHistoryIds),
     gradeOverrides: { ...gradeOverrides },
     plannerSemester: getSelectedPlannerSemester(),
     savedAt,
@@ -535,8 +625,7 @@ function savePersistedState() {
   return true;
 }
 
-function moveCompletedPlannerCoursesToHistory() {
-  const completed = semesterPlan.courses.filter((course) => isValidGrade(course.grade));
+function moveCompletedPlannerCoursesToHistory(completed = semesterPlan.courses.filter((course) => isValidGrade(course.grade))) {
   if (completed.length === 0) return 0;
 
   const completedHistory = getRawAcademicHistory();
@@ -564,22 +653,19 @@ function moveCompletedPlannerCoursesToHistory() {
   return completed.length;
 }
 
-function handleSave() {
-  const invalidPlanned = semesterPlan.courses.filter((course) => !isValidPlannedCourse(course));
-  if (invalidPlanned.length > 0) {
-    showPlannerMessage("Cannot save: planned course data is invalid.");
-    return;
-  }
-
+function performSave(completedCourses = semesterPlan.courses.filter((course) => isValidGrade(course.grade))) {
   const plannedCoursesBeforeSave = semesterPlan.courses.map((course) => ({ ...course }));
   const completedHistoryBeforeSave = persistedAcademicHistory.map((course) => ({ ...course }));
   const gradeOverridesBeforeSave = { ...gradeOverrides };
-  const completedCount = moveCompletedPlannerCoursesToHistory();
+  const deletedCourseIdsBeforeSave = new Set(deletedAcademicHistoryIds);
+  const completedCount = moveCompletedPlannerCoursesToHistory(completedCourses);
   const saved = savePersistedState();
   if (!saved) {
     semesterPlan.courses = plannedCoursesBeforeSave;
     persistedAcademicHistory.splice(0, persistedAcademicHistory.length, ...completedHistoryBeforeSave);
     gradeOverrides = gradeOverridesBeforeSave;
+    deletedAcademicHistoryIds.clear();
+    deletedCourseIdsBeforeSave.forEach((id) => deletedAcademicHistoryIds.add(id));
     renderAcademicSummary();
     renderAcademicHistory();
     renderSemesterPlanner();
@@ -594,6 +680,28 @@ function handleSave() {
   renderAcademicSummary();
   renderAcademicHistory();
   renderSemesterPlanner();
+}
+
+function handleSave() {
+  const invalidPlanned = semesterPlan.courses.filter((course) => !isValidPlannedCourse(course));
+  if (invalidPlanned.length > 0) {
+    showPlannerMessage("Cannot save: planned course data is invalid.");
+    return;
+  }
+
+  const completedCourses = semesterPlan.courses.filter((course) => isValidGrade(course.grade));
+  if (completedCourses.length > 0) {
+    openConfirmationModal({
+      title: "Save completed course?",
+      description: "Saving these course(s) will add them to Academic History and affect GPA/CPA calculations.",
+      courses: completedCourses,
+      confirmLabel: "Save Course",
+      onConfirm: () => performSave(completedCourses),
+    });
+    return;
+  }
+
+  performSave();
 }
 
 // ------------------------------------------------------------------
@@ -730,13 +838,142 @@ function deletePlannedCourse(id) {
   if (index === -1) return;
 
   const course = semesterPlan.courses[index];
-  const confirmed = window.confirm(`Remove ${course.code} from the semester plan?`);
-  if (!confirmed) return;
+  openConfirmationModal({
+    title: "Remove planned course?",
+    description: "This will remove the course from the current semester plan without changing Academic History.",
+    courses: [course],
+    confirmLabel: "Remove Course",
+    destructive: true,
+    onConfirm: () => {
+      semesterPlan.courses.splice(index, 1);
+      showPlannerMessage("");
+      markUnsaved();
+      renderSemesterPlanner();
+    },
+  });
+}
 
-  semesterPlan.courses.splice(index, 1);
-  showPlannerMessage("");
-  markUnsaved();
-  renderSemesterPlanner();
+let pendingModalAction = null;
+
+function renderConfirmationCourse(course) {
+  const details = document.createElement("div");
+  details.className = "confirmation-course";
+
+  const fields = [
+    ["Course code", course.code],
+    ["Course name", course.name],
+    ["Credits", String(course.credits)],
+    ["Semester", course.semester],
+    ["Final grade", course.grade],
+  ];
+
+  for (const [label, value] of fields) {
+    const row = document.createElement("div");
+    row.className = "confirmation-course__row";
+    const labelElement = document.createElement("span");
+    labelElement.className = "confirmation-course__label";
+    labelElement.textContent = label;
+    const valueElement = document.createElement("strong");
+    valueElement.className = "confirmation-course__value";
+    valueElement.textContent = value;
+    row.append(labelElement, valueElement);
+    details.appendChild(row);
+  }
+
+  return details;
+}
+
+function closeConfirmationModal() {
+  const modal = document.getElementById("confirmation-modal");
+  if (!modal) return;
+
+  modal.hidden = true;
+  pendingModalAction = null;
+  document.body.classList.remove("modal-open");
+}
+
+function openConfirmationModal({ title, description, courses, confirmLabel, destructive = false, onConfirm }) {
+  const modal = document.getElementById("confirmation-modal");
+  const titleElement = document.getElementById("confirmation-modal-title");
+  const descriptionElement = document.getElementById("confirmation-modal-description");
+  const coursesElement = document.getElementById("confirmation-modal-courses");
+  const confirmButton = document.getElementById("confirmation-modal-confirm");
+  if (!modal || !titleElement || !descriptionElement || !coursesElement || !confirmButton) return;
+
+  titleElement.textContent = title;
+  descriptionElement.textContent = description;
+  coursesElement.innerHTML = "";
+  courses.forEach((course) => coursesElement.appendChild(renderConfirmationCourse(course)));
+  confirmButton.textContent = confirmLabel;
+  confirmButton.className = `btn ${destructive ? "btn--danger" : "btn--primary"}`;
+  pendingModalAction = onConfirm;
+  modal.hidden = false;
+  document.body.classList.add("modal-open");
+  confirmButton.focus();
+}
+
+function deleteAcademicHistoryCourse(id) {
+  const course = getRawAcademicHistory().find((item) => item.id === id);
+  if (!course) return;
+
+  openConfirmationModal({
+    title: "Delete completed course?",
+    description: "Deleting this course will affect Semester GPA, Current CPA, Projected CPA, and the GPA Trend.",
+    courses: [course],
+    confirmLabel: "Delete Course",
+    destructive: true,
+    onConfirm: () => {
+      const persistedIndex = persistedAcademicHistory.findIndex((item) => item.id === id);
+      const persistedCourse = persistedIndex === -1 ? null : persistedAcademicHistory[persistedIndex];
+      const previousOverride = gradeOverrides[id];
+
+      if (persistedCourse) {
+        persistedAcademicHistory.splice(persistedIndex, 1);
+      } else {
+        deletedAcademicHistoryIds.add(id);
+      }
+      delete gradeOverrides[id];
+
+      if (!savePersistedState()) {
+        if (persistedCourse) {
+          persistedAcademicHistory.splice(persistedIndex, 0, persistedCourse);
+        } else {
+          deletedAcademicHistoryIds.delete(id);
+        }
+        if (previousOverride) gradeOverrides[id] = previousOverride;
+        renderAcademicSummary();
+        renderAcademicHistory();
+        return;
+      }
+
+      showPlannerMessage(`${course.code} was removed from Academic History.`, "success");
+      renderAcademicSummary();
+      renderAcademicHistory();
+      renderSemesterPlanner();
+    },
+  });
+}
+
+function bindConfirmationModalEvents() {
+  const cancelButton = document.getElementById("confirmation-modal-cancel");
+  const confirmButton = document.getElementById("confirmation-modal-confirm");
+  const modal = document.getElementById("confirmation-modal");
+  if (cancelButton) cancelButton.addEventListener("click", closeConfirmationModal);
+  if (modal) {
+    modal.addEventListener("click", (event) => {
+      if (event.target.closest("[data-modal-cancel]")) closeConfirmationModal();
+    });
+  }
+  if (confirmButton) {
+    confirmButton.addEventListener("click", () => {
+      const action = pendingModalAction;
+      closeConfirmationModal();
+      if (action) action();
+    });
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && modal && !modal.hidden) closeConfirmationModal();
+  });
 }
 
 function bindSemesterPlannerEvents() {
@@ -776,6 +1013,11 @@ function bindSemesterPlannerEvents() {
 
   const historyContainer = document.getElementById("academic-history-container");
   if (historyContainer) {
+    historyContainer.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-delete-history-id]");
+      if (!button) return;
+      deleteAcademicHistoryCourse(button.getAttribute("data-delete-history-id"));
+    });
     historyContainer.addEventListener("change", (event) => {
       const select = event.target.closest("[data-grade-history-id]");
       if (!select || !Object.prototype.hasOwnProperty.call(GRADE_POINTS, select.value)) return;
@@ -887,6 +1129,7 @@ function renderAcademicHistory() {
         <th>Course Name</th>
         <th class="center">Credits</th>
         <th class="center">Grade</th>
+        <th class="center">Action</th>
       </tr>
     `;
     table.appendChild(thead);
@@ -917,7 +1160,17 @@ function renderAcademicHistory() {
       const gradeCell = document.createElement("td");
       gradeCell.className = "center";
       gradeCell.appendChild(gradeSelect);
-      tr.append(codeCell, nameCell, creditsCell, gradeCell);
+      const actionCell = document.createElement("td");
+      actionCell.className = "center";
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "btn btn--ghost";
+      deleteButton.title = `Delete ${course.code} from Academic History`;
+      deleteButton.setAttribute("aria-label", `Delete ${course.code} from Academic History`);
+      deleteButton.setAttribute("data-delete-history-id", course.id);
+      deleteButton.textContent = "Delete";
+      actionCell.appendChild(deleteButton);
+      tr.append(codeCell, nameCell, creditsCell, gradeCell, actionCell);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -1042,10 +1295,12 @@ function renderSemesterPlanner() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initializeTheme();
   loadPersistedState();
   validateAcademicHistory();
   renderAcademicSummary();
   renderAcademicHistory();
   renderSemesterPlanner();
   bindSemesterPlannerEvents();
+  bindConfirmationModalEvents();
 });

@@ -15,7 +15,13 @@
     <!-- SECTION 1 — Application Header -->
     <!-- ============================== -->
     <header class="app-header" id="app-header">
-      <h1 class="app-header__title">CPA Planner</h1>
+      <div class="app-header__topline">
+        <h1 class="app-header__title">CPA Planner</h1>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode">
+          <span class="theme-toggle__icon" aria-hidden="true">🌙</span>
+          <span class="theme-toggle__label">Dark Mode</span>
+        </button>
+      </div>
       <p class="app-header__subtitle">Plan your semester. Track your academic progress.</p>
     </header>
 
@@ -58,10 +64,12 @@
         <span class="icon">📈</span> GPA Trend
       </h2>
       <div class="chart-card">
-        <p class="chart-card__description">Semester GPA progress across completed academic history.</p>
+        <p class="chart-card__description">Semester GPA and cumulative CPA across completed academic history.</p>
         <div id="gpa-chart-empty" class="chart-empty" role="status">No semester GPA data available yet.</div>
-        <div class="chart-container">
-          <canvas id="gpa-trend-chart" aria-label="Line chart showing GPA by semester" role="img"></canvas>
+        <div class="chart-scroll" id="gpa-chart-scroll">
+          <div class="chart-container">
+            <canvas id="gpa-trend-chart" aria-label="Line chart showing GPA by semester" role="img"></canvas>
+          </div>
         </div>
       </div>
     </section>
@@ -181,6 +189,25 @@
     </section>
 
   </div><!-- /.app-container -->
+
+  <div class="confirmation-modal" id="confirmation-modal" hidden>
+    <div class="confirmation-modal__backdrop" data-modal-cancel></div>
+    <section
+      class="confirmation-modal__dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirmation-modal-title"
+      aria-describedby="confirmation-modal-description"
+    >
+      <h2 class="confirmation-modal__title" id="confirmation-modal-title"></h2>
+      <p class="confirmation-modal__description" id="confirmation-modal-description"></p>
+      <div class="confirmation-modal__courses" id="confirmation-modal-courses"></div>
+      <div class="confirmation-modal__actions">
+        <button class="btn btn--secondary" id="confirmation-modal-cancel" type="button">Cancel</button>
+        <button class="btn btn--primary" id="confirmation-modal-confirm" type="button"></button>
+      </div>
+    </section>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="script.js"></script>
