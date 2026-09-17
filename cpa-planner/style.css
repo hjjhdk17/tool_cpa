@@ -104,6 +104,10 @@ body { font-family: var(--ff-base); font-size: var(--fs-base); color: var(--clr-
 .planner-input:focus { outline: none; border-color: var(--clr-accent); }
 .planner-input--credits { width: 60px; text-align: center; }
 .scale-placeholder { color: var(--clr-text-muted); font-size: var(--fs-sm); font-weight: 500; }
+.grade-scale { font-size: var(--fs-sm); font-weight: 600; color: var(--clr-text); }
+.planner-semester-summary td { background: var(--clr-accent-light); font-weight: 600; color: var(--clr-accent); font-size: var(--fs-sm); }
+.result-card__value.has-value { color: var(--clr-text); }
+.result-card--projected .result-card__value.has-value { color: var(--clr-accent); }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: var(--sp-2); font-family: var(--ff-base); font-size: var(--fs-sm); font-weight: 600; padding: var(--sp-2) var(--sp-4); border: none; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.2s var(--ease-out), transform 0.15s var(--ease-out); }

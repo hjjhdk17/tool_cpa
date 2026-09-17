@@ -1,5 +1,5 @@
 /* ============================================================
-   CPA Planner — Phase 3: Semester Planner Course Management
+   CPA Planner — Phase 4: GPA & CPA Calculation Engine
    ============================================================
    1. Academic data
    2. Grade point mapping
@@ -73,11 +73,19 @@ function getGradePoint(grade) {
 }
 
 // ------------------------------------------------------------------
-// 3. ACADEMIC CALCULATIONS — derived from academicHistory only
+// 3. ACADEMIC CALCULATIONS
+//    Current CPA / completed credits: academicHistory only
+//    Planned GPA / projected CPA: semesterPlan, kept separate
 // ------------------------------------------------------------------
 
 function sumCredits(courses) {
   return courses.reduce((sum, course) => sum + course.credits, 0);
+}
+
+function calculateQualityPoints(courses) {
+  return courses.reduce((sum, course) => {
+    return sum + course.credits * getGradePoint(course.grade);
+  }, 0);
 }
 
 function calculateCompletedCredits(courses) {
@@ -87,12 +95,59 @@ function calculateCompletedCredits(courses) {
 function calculateCurrentCPA(courses) {
   const totalCredits = calculateCompletedCredits(courses);
   if (totalCredits === 0) return 0;
+  return calculateQualityPoints(courses) / totalCredits;
+}
 
-  const qualityPoints = courses.reduce((sum, course) => {
-    return sum + course.credits * getGradePoint(course.grade);
-  }, 0);
+function calculatePlannedCredits(courses) {
+  return sumCredits(courses);
+}
 
-  return qualityPoints / totalCredits;
+function calculateSemesterGPA(courses) {
+  const totalCredits = sumCredits(courses);
+  if (totalCredits === 0) return 0;
+  return calculateQualityPoints(courses) / totalCredits;
+}
+
+function calculateProjectedCPA(completedCourses, plannedCourses) {
+  const plannedCredits = calculatePlannedCredits(plannedCourses);
+  if (plannedCredits === 0) {
+    return calculateCurrentCPA(completedCourses);
+  }
+
+  const completedCredits = calculateCompletedCredits(completedCourses);
+  const totalCredits = completedCredits + plannedCredits;
+  if (totalCredits === 0) return 0;
+
+  const completedQualityPoints = calculateQualityPoints(completedCourses);
+  const plannedQualityPoints = calculateQualityPoints(plannedCourses);
+  return (completedQualityPoints + plannedQualityPoints) / totalCredits;
+}
+
+function getPlannedSemesterStats(plannedCourses) {
+  const grouped = groupBySemester(plannedCourses);
+  const stats = [];
+
+  grouped.forEach((courses, semester) => {
+    stats.push({
+      semester,
+      credits: calculatePlannedCredits(courses),
+      gpa: calculateSemesterGPA(courses),
+    });
+  });
+
+  return stats;
+}
+
+function formatGPA(value) {
+  return value.toFixed(2);
+}
+
+function formatCPA(value) {
+  return value.toFixed(2);
+}
+
+function formatGradeScale(value) {
+  return value.toFixed(1);
 }
 
 function groupBySemester(courses) {
@@ -311,6 +366,13 @@ function bindSemesterPlannerEvents() {
       deletePlannedCourse(button.getAttribute("data-delete-planned-id"));
     });
   }
+
+  const semesterInput = document.getElementById("planner-semester-input");
+  if (semesterInput) {
+    semesterInput.addEventListener("input", () => {
+      renderCalculationResults();
+    });
+  }
 }
 
 // ------------------------------------------------------------------
@@ -324,8 +386,51 @@ function renderAcademicSummary() {
   const currentCPA = calculateCurrentCPA(academicHistory);
   const completedCredits = calculateCompletedCredits(academicHistory);
 
-  if (cpaValue) cpaValue.textContent = currentCPA.toFixed(2);
+  if (cpaValue) cpaValue.textContent = formatCPA(currentCPA);
   if (creditsValue) creditsValue.textContent = completedCredits;
+
+  renderCalculationResults();
+}
+
+function setResultText(id, text, hasValue) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("has-value", Boolean(hasValue));
+}
+
+function getSelectedPlannerSemester() {
+  const semesterInput = document.getElementById("planner-semester-input");
+  const selected = semesterInput ? semesterInput.value.trim() : "";
+  return selected || semesterPlan.semester;
+}
+
+function renderCalculationResults() {
+  const plannedCourses = semesterPlan.courses;
+  const plannedCredits = calculatePlannedCredits(plannedCourses);
+  const currentCPA = calculateCurrentCPA(academicHistory);
+  const projectedCPA = calculateProjectedCPA(academicHistory, plannedCourses);
+
+  const selectedSemester = getSelectedPlannerSemester();
+  const selectedCourses = plannedCourses.filter((course) => course.semester === selectedSemester);
+  const selectedHasCourses = selectedCourses.length > 0;
+  const selectedGPA = selectedHasCourses ? calculateSemesterGPA(selectedCourses) : null;
+
+  const projectedDisplay = formatCPA(projectedCPA);
+  const gpaDisplay = selectedGPA === null ? "—" : formatGPA(selectedGPA);
+
+  const summaryProjected = document.getElementById("summary-projected-cpa-value");
+  const summarySemesterGpa = document.getElementById("summary-semester-gpa-value");
+  if (summaryProjected) summaryProjected.textContent = projectedDisplay;
+  if (summarySemesterGpa) summarySemesterGpa.textContent = gpaDisplay;
+
+  setResultText("result-planned-credits", String(plannedCredits), true);
+  setResultText("result-semester-gpa", gpaDisplay, selectedHasCourses);
+  setResultText("result-projected-cpa", projectedDisplay, true);
+
+  // Current CPA is never affected by planned courses; keep the summary in sync.
+  const cpaValue = document.getElementById("summary-cpa-value");
+  if (cpaValue) cpaValue.textContent = formatCPA(currentCPA);
 }
 
 function renderAcademicHistory() {
@@ -410,62 +515,80 @@ function renderSemesterPlanner() {
     emptyCell.textContent = "No planned courses yet. Fill in the form below and click + Add Course.";
     emptyRow.appendChild(emptyCell);
     tbody.appendChild(emptyRow);
+    renderCalculationResults();
     return;
   }
 
-  for (const course of semesterPlan.courses) {
-    const tr = document.createElement("tr");
+  const grouped = groupBySemester(semesterPlan.courses);
 
-    const codeCell = document.createElement("td");
-    codeCell.className = "code-cell";
-    codeCell.textContent = course.code;
+  grouped.forEach((courses, semesterCode) => {
+    const headerRow = document.createElement("tr");
+    headerRow.className = "planner-semester-summary";
+    const headerCell = document.createElement("td");
+    headerCell.colSpan = 7;
+    const semesterCredits = calculatePlannedCredits(courses);
+    const semesterGPA = calculateSemesterGPA(courses);
+    headerCell.textContent = `${formatSemesterLabel(semesterCode)}  ·  ${semesterCredits} credits  ·  GPA ${formatGPA(semesterGPA)}`;
+    headerRow.appendChild(headerCell);
+    tbody.appendChild(headerRow);
 
-    const nameCell = document.createElement("td");
-    nameCell.textContent = course.name;
+    for (const course of courses) {
+      const tr = document.createElement("tr");
 
-    const creditsCell = document.createElement("td");
-    creditsCell.className = "center";
-    creditsCell.textContent = String(course.credits);
+      const codeCell = document.createElement("td");
+      codeCell.className = "code-cell";
+      codeCell.textContent = course.code;
 
-    const semesterCell = document.createElement("td");
-    semesterCell.className = "center";
-    semesterCell.textContent = course.semester;
+      const nameCell = document.createElement("td");
+      nameCell.textContent = course.name;
 
-    const gradeCell = document.createElement("td");
-    gradeCell.className = "center";
-    const gradeBadge = document.createElement("span");
-    gradeBadge.className = `grade-badge grade-${course.grade.replace("+", "-plus")}`;
-    gradeBadge.textContent = course.grade;
-    gradeCell.appendChild(gradeBadge);
+      const creditsCell = document.createElement("td");
+      creditsCell.className = "center";
+      creditsCell.textContent = String(course.credits);
 
-    const scaleCell = document.createElement("td");
-    scaleCell.className = "center";
-    const scalePlaceholder = document.createElement("span");
-    scalePlaceholder.className = "scale-placeholder";
-    scalePlaceholder.textContent = "—";
-    scaleCell.appendChild(scalePlaceholder);
+      const semesterCell = document.createElement("td");
+      semesterCell.className = "center";
+      semesterCell.textContent = course.semester;
 
-    const actionCell = document.createElement("td");
-    actionCell.className = "center";
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "btn btn--ghost";
-    deleteButton.title = "Remove course";
-    deleteButton.setAttribute("data-delete-planned-id", course.id);
-    deleteButton.textContent = "✕";
-    actionCell.appendChild(deleteButton);
+      const gradeCell = document.createElement("td");
+      gradeCell.className = "center";
+      const gradeBadge = document.createElement("span");
+      gradeBadge.className = `grade-badge grade-${course.grade.replace("+", "-plus")}`;
+      gradeBadge.textContent = course.grade;
+      gradeCell.appendChild(gradeBadge);
 
-    tr.append(
-      codeCell,
-      nameCell,
-      creditsCell,
-      semesterCell,
-      gradeCell,
-      scaleCell,
-      actionCell
-    );
-    tbody.appendChild(tr);
-  }
+      const scaleCell = document.createElement("td");
+      scaleCell.className = "center";
+      const scaleValue = document.createElement("span");
+      const gradePoint = getGradePoint(course.grade);
+      scaleValue.className = Number.isFinite(gradePoint) ? "grade-scale" : "scale-placeholder";
+      scaleValue.textContent = Number.isFinite(gradePoint) ? formatGradeScale(gradePoint) : "—";
+      scaleCell.appendChild(scaleValue);
+
+      const actionCell = document.createElement("td");
+      actionCell.className = "center";
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "btn btn--ghost";
+      deleteButton.title = "Remove course";
+      deleteButton.setAttribute("data-delete-planned-id", course.id);
+      deleteButton.textContent = "✕";
+      actionCell.appendChild(deleteButton);
+
+      tr.append(
+        codeCell,
+        nameCell,
+        creditsCell,
+        semesterCell,
+        gradeCell,
+        scaleCell,
+        actionCell
+      );
+      tbody.appendChild(tr);
+    }
+  });
+
+  renderCalculationResults();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
