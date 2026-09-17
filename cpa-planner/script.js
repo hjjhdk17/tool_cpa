@@ -79,6 +79,10 @@ function getGradePoint(grade) {
   return GRADE_POINTS[grade];
 }
 
+function isValidGrade(grade) {
+  return Object.prototype.hasOwnProperty.call(GRADE_POINTS, grade);
+}
+
 function normalizeCourseCode(code) {
   return String(code || "").trim().toUpperCase();
 }
@@ -105,7 +109,7 @@ function getRawAcademicHistory() {
     const overrideGrade = gradeOverrides[course.id];
     return {
       ...course,
-      grade: overrideGrade && overrideGrade in GRADE_POINTS ? overrideGrade : course.grade,
+      grade: isValidGrade(overrideGrade) ? overrideGrade : course.grade,
     };
   });
 }
@@ -143,7 +147,7 @@ function getProjectedEffectiveHistory(completedCourses, plannedCourses) {
 }
 
 function calculateCompletedCredits(courses) {
-  return sumCredits(courses);
+  return sumCredits(getEffectiveAcademicHistory(courses));
 }
 
 function calculateEffectiveCompletedCredits(courses) {
@@ -152,7 +156,7 @@ function calculateEffectiveCompletedCredits(courses) {
 
 function calculateCurrentCPA(courses) {
   const effective = getEffectiveAcademicHistory(courses);
-  const totalCredits = calculateCompletedCredits(effective);
+  const totalCredits = sumCredits(effective);
   if (totalCredits === 0) return 0;
   return calculateQualityPoints(effective) / totalCredits;
 }
@@ -317,7 +321,7 @@ function isValidPlannedCourse(course) {
     course.credits > 0 &&
     typeof course.semester === "string" &&
     course.semester.trim() !== "" &&
-    course.grade in GRADE_POINTS
+    isValidGrade(course.grade)
   );
 }
 
@@ -331,7 +335,7 @@ function isValidPersistedState(data) {
   }
 
   for (const grade of Object.values(data.gradeOverrides)) {
-    if (!(grade in GRADE_POINTS)) return false;
+    if (!isValidGrade(grade)) return false;
   }
 
   return true;
@@ -418,10 +422,6 @@ function handleSave() {
 // 6. SEMESTER PLANNER — planned courses only (does not affect Current CPA)
 // ------------------------------------------------------------------
 
-function normalizeCourseCode(code) {
-  return String(code || "").trim().toUpperCase();
-}
-
 function parseCredits(value) {
   const trimmed = String(value).trim();
   if (trimmed === "") return null;
@@ -465,7 +465,7 @@ function validatePlannedCourse(course) {
     errors.push("Semester is required.");
   }
 
-  if (!course.grade || !(course.grade in GRADE_POINTS)) {
+  if (!course.grade || !isValidGrade(course.grade)) {
     errors.push("Please select a valid planned grade.");
   }
 
@@ -478,18 +478,20 @@ function validatePlannedCourse(course) {
   return errors;
 }
 
-function showPlannerMessage(message) {
+function showPlannerMessage(message, type = "error") {
   const el = document.getElementById("planner-message");
   if (!el) return;
 
   if (!message) {
     el.hidden = true;
     el.textContent = "";
+    el.className = "planner-message";
     return;
   }
 
   el.hidden = false;
   el.textContent = message;
+  el.className = `planner-message${type === "success" ? " planner-message--success" : ""}`;
 }
 
 function clearPlannerForm() {
@@ -541,6 +543,7 @@ function addPlannedCourse() {
 
   showPlannerMessage("");
   clearPlannerForm();
+  markUnsaved();
   renderSemesterPlanner();
 }
 
@@ -554,6 +557,7 @@ function deletePlannedCourse(id) {
 
   semesterPlan.courses.splice(index, 1);
   showPlannerMessage("");
+  markUnsaved();
   renderSemesterPlanner();
 }
 
@@ -563,6 +567,14 @@ function bindSemesterPlannerEvents() {
     addButton.addEventListener("click", (event) => {
       event.preventDefault();
       addPlannedCourse();
+    });
+  }
+
+  const saveButton = document.getElementById("btn-save");
+  if (saveButton) {
+    saveButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      handleSave();
     });
   }
 
@@ -578,7 +590,22 @@ function bindSemesterPlannerEvents() {
   const semesterInput = document.getElementById("planner-semester-input");
   if (semesterInput) {
     semesterInput.addEventListener("input", () => {
+      semesterPlan.semester = semesterInput.value.trim() || semesterPlan.semester;
+      markUnsaved();
       renderCalculationResults();
+    });
+  }
+
+  const historyContainer = document.getElementById("academic-history-container");
+  if (historyContainer) {
+    historyContainer.addEventListener("change", (event) => {
+      const select = event.target.closest("[data-grade-history-id]");
+      if (!select || !Object.prototype.hasOwnProperty.call(GRADE_POINTS, select.value)) return;
+
+      gradeOverrides[select.getAttribute("data-grade-history-id")] = select.value;
+      markUnsaved();
+      renderAcademicSummary();
+      renderAcademicHistory();
     });
   }
 }
@@ -591,8 +618,8 @@ function renderAcademicSummary() {
   const cpaValue = document.getElementById("summary-cpa-value");
   const creditsValue = document.getElementById("summary-credits-value");
 
-  const currentCPA = calculateCurrentCPA(academicHistory);
-  const completedCredits = calculateCompletedCredits(academicHistory);
+  const currentCPA = calculateCurrentCPA(getRawAcademicHistory());
+  const completedCredits = calculateEffectiveCompletedCredits(getRawAcademicHistory());
 
   if (cpaValue) cpaValue.textContent = formatCPA(currentCPA);
   if (creditsValue) creditsValue.textContent = completedCredits;
@@ -616,8 +643,9 @@ function getSelectedPlannerSemester() {
 function renderCalculationResults() {
   const plannedCourses = semesterPlan.courses;
   const plannedCredits = calculatePlannedCredits(plannedCourses);
-  const currentCPA = calculateCurrentCPA(academicHistory);
-  const projectedCPA = calculateProjectedCPA(academicHistory, plannedCourses);
+  const rawHistory = getRawAcademicHistory();
+  const currentCPA = calculateCurrentCPA(rawHistory);
+  const projectedCPA = calculateProjectedCPA(getRawAcademicHistory(), plannedCourses);
 
   const selectedSemester = getSelectedPlannerSemester();
   const selectedCourses = plannedCourses.filter((course) => course.semester === selectedSemester);
@@ -647,7 +675,7 @@ function renderAcademicHistory() {
 
   container.innerHTML = "";
 
-  const grouped = groupBySemester(academicHistory);
+  const grouped = groupBySemester(getRawAcademicHistory());
 
   grouped.forEach((courses, semesterCode) => {
     const semesterBlock = document.createElement("div");
@@ -687,13 +715,31 @@ function renderAcademicHistory() {
 
     const tbody = document.createElement("tbody");
     for (const course of courses) {
+      const gradeSelect = document.createElement("select");
+      gradeSelect.className = "grade-select";
+      gradeSelect.setAttribute("data-grade-history-id", course.id);
+      gradeSelect.setAttribute("aria-label", `Grade for ${course.code}`);
+      for (const grade of GRADE_OPTIONS) {
+        const option = document.createElement("option");
+        option.value = grade;
+        option.textContent = grade;
+        option.selected = grade === course.grade;
+        gradeSelect.appendChild(option);
+      }
+
       const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="code-cell">${course.code}</td>
-        <td>${course.name}</td>
-        <td class="center">${course.credits}</td>
-        <td class="center"><span class="grade-badge grade-${course.grade.replace('+', '-plus')}">${course.grade}</span></td>
-      `;
+      const codeCell = document.createElement("td");
+      codeCell.className = "code-cell";
+      codeCell.textContent = course.code;
+      const nameCell = document.createElement("td");
+      nameCell.textContent = course.name;
+      const creditsCell = document.createElement("td");
+      creditsCell.className = "center";
+      creditsCell.textContent = String(course.credits);
+      const gradeCell = document.createElement("td");
+      gradeCell.className = "center";
+      gradeCell.appendChild(gradeSelect);
+      tr.append(codeCell, nameCell, creditsCell, gradeCell);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -706,7 +752,7 @@ function renderAcademicHistory() {
 
 function renderSemesterPlanner() {
   const semesterInput = document.getElementById("planner-semester-input");
-  if (semesterInput && !semesterInput.value.trim()) {
+  if (semesterInput) {
     semesterInput.value = semesterPlan.semester;
   }
 
@@ -718,7 +764,7 @@ function renderSemesterPlanner() {
   if (semesterPlan.courses.length === 0) {
     const emptyRow = document.createElement("tr");
     const emptyCell = document.createElement("td");
-    emptyCell.colSpan = 7;
+    emptyCell.colSpan = 8;
     emptyCell.className = "planner-empty";
     emptyCell.textContent = "No planned courses yet. Fill in the form below and click + Add Course.";
     emptyRow.appendChild(emptyCell);
@@ -733,7 +779,7 @@ function renderSemesterPlanner() {
     const headerRow = document.createElement("tr");
     headerRow.className = "planner-semester-summary";
     const headerCell = document.createElement("td");
-    headerCell.colSpan = 7;
+    headerCell.colSpan = 8;
     const semesterCredits = calculatePlannedCredits(courses);
     const semesterGPA = calculateSemesterGPA(courses);
     headerCell.textContent = `${formatSemesterLabel(semesterCode)}  ·  ${semesterCredits} credits  ·  GPA ${formatGPA(semesterGPA)}`;
@@ -765,6 +811,14 @@ function renderSemesterPlanner() {
       gradeBadge.textContent = course.grade;
       gradeCell.appendChild(gradeBadge);
 
+      const statusCell = document.createElement("td");
+      statusCell.className = "center";
+      const status = getPlannedCourseStatus(course, getRawAcademicHistory());
+      const statusBadge = document.createElement("span");
+      statusBadge.className = `planned-status planned-status--${status === "New" ? "new" : "improvement"}`;
+      statusBadge.textContent = status;
+      statusCell.appendChild(statusBadge);
+
       const scaleCell = document.createElement("td");
       scaleCell.className = "center";
       const scaleValue = document.createElement("span");
@@ -789,6 +843,7 @@ function renderSemesterPlanner() {
         creditsCell,
         semesterCell,
         gradeCell,
+        statusCell,
         scaleCell,
         actionCell
       );
@@ -800,6 +855,7 @@ function renderSemesterPlanner() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  loadPersistedState();
   validateAcademicHistory();
   renderAcademicSummary();
   renderAcademicHistory();

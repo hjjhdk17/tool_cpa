@@ -92,6 +92,7 @@
                 <th class="center">Credits</th>
                 <th class="center">Semester</th>
                 <th class="center">Predicted Grade</th>
+                <th class="center">Status</th>
                 <th class="center">4.0 Scale</th>
                 <th class="center">Action</th>
               </tr>
@@ -118,6 +119,7 @@
                   </select>
                 </td>
                 <td class="center"><span class="scale-placeholder">—</span></td>
+                <td class="center"><span class="scale-placeholder">—</span></td>
                 <td class="center"></td>
               </tr>
             </tbody>
@@ -127,7 +129,11 @@
         <!-- Add Course button -->
         <div class="planner-actions">
           <p id="planner-message" class="planner-message" hidden></p>
-          <button class="btn btn--primary" id="btn-add-course">+ Add Course</button>
+          <div class="planner-actions__buttons">
+            <button class="btn btn--primary" id="btn-add-course">+ Add Course</button>
+            <button class="btn btn--secondary" id="btn-save" type="button">Save</button>
+            <span id="save-status" class="save-status" aria-live="polite">Saved</span>
+          </div>
         </div>
       </div>
     </section>
